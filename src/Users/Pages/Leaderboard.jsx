@@ -1,36 +1,89 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-
-// ══════════════════════════════════════
-//  DUMMY DATA
-// ══════════════════════════════════════
-const TOP3 = [
-  { rank: 2, name: 'Ahmed Ali',   city: 'CAIRO',      badge: '2ND PLACE',       pts: 12450, img: 'https://randomuser.me/api/portraits/men/32.jpg',   borderColor: '#94a3b8', size: 80  },
-  { rank: 1, name: 'Layla Hassan',city: 'GIZA',       badge: 'COMMUNITY HERO',  pts: 15800, img: 'https://randomuser.me/api/portraits/women/44.jpg',  borderColor: '#f59e0b', size: 100 },
-  { rank: 3, name: 'Omar Zayed',  city: 'ALEXANDRIA', badge: '3RD PLACE',       pts: 10120, img: 'https://randomuser.me/api/portraits/men/68.jpg',   borderColor: '#d97706', size: 80  },
-]
-
-const RANKINGS = [
-  { rank: 4,  name: 'Mona Refaat',   city: 'Cairo',     reports: 84, resolved: 79, pts: 8950,  img: 'https://randomuser.me/api/portraits/women/26.jpg'  },
-  { rank: 5,  name: 'Karim Ibrahim', city: 'Giza',      reports: 72, resolved: 68, pts: 7820,  img: 'https://randomuser.me/api/portraits/men/45.jpg'    },
-  { rank: 6,  name: 'Fatima Nour',   city: 'Mansoura',  reports: 65, resolved: 60, pts: 6400,  img: 'https://randomuser.me/api/portraits/women/55.jpg'  },
-  { rank: 7,  name: 'Youssef Adly',  city: 'Alexandria',reports: 58, resolved: 52, pts: 5910,  img: 'https://randomuser.me/api/portraits/men/72.jpg'    },
-  { rank: 8,  name: 'Nour Salem',    city: 'Cairo',     reports: 50, resolved: 47, pts: 5200,  img: 'https://randomuser.me/api/portraits/women/33.jpg'  },
-  { rank: 9,  name: 'Hassan Fathy',  city: 'Giza',      reports: 44, resolved: 40, pts: 4750,  img: 'https://randomuser.me/api/portraits/men/15.jpg'    },
-  { rank: 10, name: 'Dina Mostafa',  city: 'Mansoura',  reports: 38, resolved: 35, pts: 4100,  img: 'https://randomuser.me/api/portraits/women/62.jpg'  },
-]
-
-const CITIES = ['All Cities', 'Cairo', 'Giza', 'Alexandria', 'Mansoura']
-
-const MY_RANK = { rank: 142, pts: 2840, name: 'Ahmed', img: 'https://randomuser.me/api/portraits/men/32.jpg' }
+import { leaderboardService, citiesService } from './../../services/api.js'
 
 export default function Leaderboard() {
-  const navigate    = useNavigate()
-  const [city, setCity] = useState('All Cities')
-  const [showAll, setShowAll] = useState(false)
+  const navigate = useNavigate()
 
-  const filtered = RANKINGS.filter(r => city === 'All Cities' || r.city === city)
-  const visible  = showAll ? filtered : filtered.slice(0, 4)
+  const [allEntries,  setAllEntries]  = useState([])
+  const [cities,      setCities]      = useState([])
+  const [cityId,      setCityId]      = useState('')
+  const [loading,     setLoading]     = useState(true)
+  const [error,       setError]       = useState(null)
+  const [showAll,     setShowAll]     = useState(false)
+
+  // ── Fetch cities for filter dropdown ──
+  useEffect(() => {
+    citiesService.getAll()
+      .then(res => setCities(res.data.data || res.data || []))
+      .catch(() => {}) // non-critical
+  }, [])
+
+  // ── Fetch leaderboard whenever city filter changes ──
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        setShowAll(false)
+
+        const params = { limit: 50 }
+        if (cityId) params.city_id = cityId
+
+        const res = await leaderboardService.getAll(params)
+        const raw = res.data.data?.users ?? res.data.users ?? res.data.data ?? res.data ?? []
+        setAllEntries(Array.isArray(raw) ? raw : Object.values(raw))
+      } catch (err) {
+        setError('Failed to load leaderboard')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchLeaderboard()
+  }, [cityId])
+
+  // ── Derive top 3 and rest ──
+  const top3Raw  = allEntries.slice(0, 3)
+  const rest     = allEntries.slice(3)
+  const visible  = showAll ? rest : rest.slice(0, 4)
+
+  // Podium order: 2nd, 1st, 3rd
+  const podium = top3Raw.length === 3
+    ? [top3Raw[1], top3Raw[0], top3Raw[2]]
+    : top3Raw
+
+  const podiumMeta = [
+    { badge: '2ND PLACE',      borderColor: '#94a3b8', size: 80,  medalBg: '#94a3b8' },
+    { badge: 'COMMUNITY HERO', borderColor: '#f59e0b', size: 100, medalBg: '#f59e0b' },
+    { badge: '3RD PLACE',      borderColor: '#d97706', size: 80,  medalBg: '#d97706' },
+  ]
+
+  // ── My rank (last entry if API returns current user's position) ──
+  const myEntry = allEntries.find(e => e.is_current_user)
+
+  // ── Helpers ──
+  const avatar = (user) =>
+    user?.avatar || user?.profile_photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || '?')}&background=16a34a&color=fff`
+
+  if (loading) return (
+    <div style={{ background: '#f0f4f8', minHeight: '100vh' }} className="d-flex align-items-center justify-content-center">
+      <div className="text-center">
+        <div className="spinner-border text-success mb-3" role="status" />
+        <p className="text-secondary">Loading leaderboard...</p>
+      </div>
+    </div>
+  )
+
+  if (error) return (
+    <div style={{ background: '#f0f4f8', minHeight: '100vh' }} className="d-flex align-items-center justify-content-center">
+      <div className="text-center">
+        <i className="bi bi-exclamation-circle text-danger" style={{ fontSize: '3rem' }} />
+        <h5 className="mt-3 text-danger">{error}</h5>
+        <button className="btn btn-success mt-3" onClick={() => setCityId('')}>Retry</button>
+      </div>
+    </div>
+  )
 
   return (
     <div style={{ background: '#f0f4f8', minHeight: '100vh', paddingBottom: 80 }}>
@@ -39,64 +92,64 @@ export default function Leaderboard() {
         {/* Header */}
         <div className="mb-4">
           <h2 className="fw-bold mb-1" style={{ fontSize: '2rem', color: '#0f172a' }}>Community Champions</h2>
-          <p className="text-secondary" style={{ fontSize: '.9rem' }}>Celebrating the citizens making Cairo cleaner, one report at a time.</p>
+          <p className="text-secondary" style={{ fontSize: '.9rem' }}>Celebrating the citizens making our city cleaner, one report at a time.</p>
         </div>
 
         {/* ── Top 3 Podium ── */}
-        <div className="card border-0 shadow-none mb-4 p-4" style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius: 16 }}>
-          <div className="d-flex align-items-end justify-content-center gap-4 flex-wrap">
-            {TOP3.map((u, i) => (
-              <div key={i} className="d-flex flex-column align-items-center gap-2" style={{ marginBottom: u.rank === 1 ? 0 : 20 }}>
+        {podium.length > 0 && (
+          <div className="card border-0 shadow-none mb-4 p-4" style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)', borderRadius: 16 }}>
+            <div className="d-flex align-items-end justify-content-center gap-4 flex-wrap">
+              {podium.map((u, i) => {
+                const meta = podiumMeta[i]
+                const isFirst = u.rank === 1
+                return (
+                  <div key={u.rank ?? i} className="d-flex flex-column align-items-center gap-2" style={{ marginBottom: isFirst ? 0 : 20 }}>
 
-                {/* Avatar */}
-                <div className="position-relative">
-                  <img
-                    src={u.img}
-                    alt={u.name}
-                    className="rounded-circle"
-                    style={{
-                      width: u.size, height: u.size,
-                      objectFit: 'cover',
-                      border: `4px solid ${u.borderColor}`,
-                      boxShadow: u.rank === 1 ? '0 4px 20px rgba(245,158,11,.4)' : 'none',
-                    }}
-                  />
-                  {/* Medal */}
-                  <div
-                    className="position-absolute bottom-0 end-0 rounded-circle d-flex align-items-center justify-content-center text-white fw-bold"
-                    style={{
-                      width: 26, height: 26,
-                      background: u.rank === 1 ? '#f59e0b' : u.rank === 2 ? '#94a3b8' : '#d97706',
-                      fontSize: '.7rem', border: '2px solid #fff',
-                    }}
-                  >
-                    {u.rank === 1 ? '🏆' : u.rank}
+                    {/* Avatar */}
+                    <div className="position-relative">
+                      <img
+                        src={avatar(u.user ?? u)}
+                        alt={u.user?.name ?? u.name}
+                        className="rounded-circle"
+                        style={{
+                          width: meta.size, height: meta.size,
+                          objectFit: 'cover',
+                          border: `4px solid ${meta.borderColor}`,
+                          boxShadow: isFirst ? '0 4px 20px rgba(245,158,11,.4)' : 'none',
+                        }}
+                      />
+                      {/* Medal */}
+                      <div
+                        className="position-absolute bottom-0 end-0 rounded-circle d-flex align-items-center justify-content-center text-white fw-bold"
+                        style={{ width: 26, height: 26, background: meta.medalBg, fontSize: '.7rem', border: '2px solid #fff' }}
+                      >
+                        {isFirst ? '🏆' : u.rank}
+                      </div>
+                    </div>
+
+                    {/* Name */}
+                    <div className="text-center">
+                      <div className="fw-bold" style={{ fontSize: isFirst ? '1.05rem' : '.9rem', color: '#0f172a' }}>
+                        {u.user?.name ?? u.name}
+                      </div>
+                      <div className="fw-bold text-uppercase" style={{ fontSize: '.65rem', color: '#16a34a', letterSpacing: '.07em' }}>
+                        {meta.badge} • {u.user?.city?.name ?? u.city ?? ''}
+                      </div>
+                    </div>
+
+                    {/* Points */}
+                    <span
+                      className="badge rounded-pill fw-bold px-3 py-1"
+                      style={{ background: isFirst ? '#16a34a' : '#e2e8f0', color: isFirst ? '#fff' : '#475569', fontSize: '.8rem' }}
+                    >
+                      {(u.points ?? u.pts ?? 0).toLocaleString()} pts
+                    </span>
                   </div>
-                </div>
-
-                {/* Name */}
-                <div className="text-center">
-                  <div className="fw-bold" style={{ fontSize: u.rank === 1 ? '1.05rem' : '.9rem', color: '#0f172a' }}>{u.name}</div>
-                  <div className="fw-bold text-uppercase" style={{ fontSize: '.65rem', color: '#16a34a', letterSpacing: '.07em' }}>
-                    {u.badge} • {u.city}
-                  </div>
-                </div>
-
-                {/* Points */}
-                <span
-                  className="badge rounded-pill fw-bold px-3 py-1"
-                  style={{
-                    background: u.rank === 1 ? '#16a34a' : '#e2e8f0',
-                    color: u.rank === 1 ? '#fff' : '#475569',
-                    fontSize: '.8rem',
-                  }}
-                >
-                  {u.pts.toLocaleString()} pts
-                </span>
-              </div>
-            ))}
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ── Ranking Table ── */}
         <div className="card border shadow-none" style={{ borderRadius: 12 }}>
@@ -105,10 +158,13 @@ export default function Leaderboard() {
             <select
               className="form-select form-select-sm"
               style={{ width: 'auto', fontSize: '.83rem', borderRadius: 8 }}
-              value={city}
-              onChange={e => setCity(e.target.value)}
+              value={cityId}
+              onChange={e => setCityId(e.target.value)}
             >
-              {CITIES.map(c => <option key={c}>{c === 'All Cities' ? 'Filter by City: All Cities' : c}</option>)}
+              <option value="">Filter by City: All Cities</option>
+              {cities.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
           </div>
 
@@ -121,10 +177,18 @@ export default function Leaderboard() {
             <div style={{ width: 80, fontSize: '.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.07em', textAlign: 'right' }}>Points</div>
           </div>
 
+          {/* Empty state */}
+          {rest.length === 0 && (
+            <div className="text-center py-5 text-secondary" style={{ fontSize: '.88rem' }}>
+              <i className="bi bi-trophy" style={{ fontSize: '2rem', opacity: .3 }} />
+              <div className="mt-2">No rankings available yet</div>
+            </div>
+          )}
+
           {/* Rows */}
           {visible.map((r, i) => (
             <div
-              key={r.rank}
+              key={r.rank ?? i}
               className="px-4 py-3 d-flex align-items-center"
               style={{ borderBottom: i < visible.length - 1 ? '1px solid #f1f5f9' : 'none', transition: 'background .1s' }}
               onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
@@ -132,26 +196,31 @@ export default function Leaderboard() {
             >
               <div style={{ width: 60, fontWeight: 700, fontSize: '.9rem', color: '#334155' }}>#{r.rank}</div>
               <div className="flex-grow-1 d-flex align-items-center gap-2">
-                <img src={r.img} alt={r.name} className="rounded-circle" style={{ width: 36, height: 36, objectFit: 'cover' }} />
-                <span className="fw-semibold" style={{ fontSize: '.88rem', color: '#0f172a' }}>{r.name}</span>
+                <img src={avatar(r.user ?? r)} alt={r.user?.name ?? r.name} className="rounded-circle"
+                  style={{ width: 36, height: 36, objectFit: 'cover' }} />
+                <span className="fw-semibold" style={{ fontSize: '.88rem', color: '#0f172a' }}>{r.user?.name ?? r.name}</span>
               </div>
-              <div style={{ width: 120, fontSize: '.85rem', color: '#475569' }}>{r.city}</div>
+              <div style={{ width: 120, fontSize: '.85rem', color: '#475569' }}>
+                {r.user?.city?.name ?? r.city ?? '—'}
+              </div>
               <div style={{ width: 140 }} className="d-flex align-items-center gap-2">
                 <span className="d-flex align-items-center gap-1 text-secondary" style={{ fontSize: '.78rem' }}>
-                  <i className="bi bi-file-text" style={{ fontSize: '.72rem' }} />{r.reports}
+                  <i className="bi bi-file-text" style={{ fontSize: '.72rem' }} />
+                  {r.reports_count ?? r.reports ?? 0}
                 </span>
                 <span className="d-flex align-items-center gap-1" style={{ fontSize: '.78rem', color: '#16a34a' }}>
-                  <i className="bi bi-eye" style={{ fontSize: '.72rem' }} />{r.resolved}
+                  <i className="bi bi-check-circle" style={{ fontSize: '.72rem' }} />
+                  {r.resolved_count ?? r.resolved ?? 0}
                 </span>
               </div>
               <div style={{ width: 80, fontWeight: 700, fontSize: '.9rem', color: '#0f172a', textAlign: 'right' }}>
-                {r.pts.toLocaleString()}
+                {(r.points ?? r.pts ?? 0).toLocaleString()}
               </div>
             </div>
           ))}
 
           {/* View Full */}
-          {!showAll && filtered.length > 4 && (
+          {!showAll && rest.length > 4 && (
             <div className="text-center py-3 border-top">
               <button
                 className="btn btn-link fw-semibold text-decoration-none"
@@ -166,41 +235,41 @@ export default function Leaderboard() {
 
       </div>
 
-      {/* ── Sticky Bottom Bar ── */}
-      <div
-        className="position-fixed bottom-0 start-0 end-0 d-flex align-items-center justify-content-between px-4 py-2"
-        style={{ background: '#0f172a', zIndex: 200, height: 64 }}
-      >
-        <div className="d-flex align-items-center gap-3">
-          {/* Rank badge */}
-          <span
-            className="badge rounded-pill fw-bold px-2 py-1"
-            style={{ background: '#16a34a', fontSize: '.75rem' }}
-          >
-            #{MY_RANK.rank}
-          </span>
-          <img src={MY_RANK.img} alt="me" className="rounded-circle border border-secondary"
-            style={{ width: 36, height: 36, objectFit: 'cover' }} />
-          <div>
-            <div className="fw-bold text-white" style={{ fontSize: '.85rem' }}>Your Rank</div>
-            <div className="text-secondary" style={{ fontSize: '.72rem' }}>Keep going! You're in the top 5% of Cairo.</div>
+      {/* ── Sticky Bottom Bar (only if current user has a rank) ── */}
+      {myEntry && (
+        <div
+          className="position-fixed bottom-0 start-0 end-0 d-flex align-items-center justify-content-between px-4 py-2"
+          style={{ background: '#0f172a', zIndex: 200, height: 64 }}
+        >
+          <div className="d-flex align-items-center gap-3">
+            <span className="badge rounded-pill fw-bold px-2 py-1" style={{ background: '#16a34a', fontSize: '.75rem' }}>
+              #{myEntry.rank}
+            </span>
+            <img src={avatar(myEntry.user ?? myEntry)} alt="me" className="rounded-circle border border-secondary"
+              style={{ width: 36, height: 36, objectFit: 'cover' }} />
+            <div>
+              <div className="fw-bold text-white" style={{ fontSize: '.85rem' }}>Your Rank</div>
+              <div className="text-secondary" style={{ fontSize: '.72rem' }}>Keep going! You're climbing the leaderboard.</div>
+            </div>
           </div>
-        </div>
 
-        <div className="d-flex align-items-center gap-4">
-          <div className="text-end">
-            <div className="text-secondary" style={{ fontSize: '.65rem', letterSpacing: '.07em', textTransform: 'uppercase' }}>Points</div>
-            <div className="fw-bold text-white" style={{ fontSize: '1.2rem' }}>{MY_RANK.pts.toLocaleString()}</div>
+          <div className="d-flex align-items-center gap-4">
+            <div className="text-end">
+              <div className="text-secondary" style={{ fontSize: '.65rem', letterSpacing: '.07em', textTransform: 'uppercase' }}>Points</div>
+              <div className="fw-bold text-white" style={{ fontSize: '1.2rem' }}>
+                {(myEntry.points ?? myEntry.pts ?? 0).toLocaleString()}
+              </div>
+            </div>
+            <button
+              className="btn fw-bold px-4"
+              style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: '.88rem' }}
+              onClick={() => navigate('/user/dashboard')}
+            >
+              My Stats
+            </button>
           </div>
-          <button
-            className="btn fw-bold px-4"
-            style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: '.88rem' }}
-            onClick={() => navigate('/user/dashboard')}
-          >
-            My Stats
-          </button>
         </div>
-      </div>
+      )}
 
     </div>
   )

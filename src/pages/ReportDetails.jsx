@@ -1,70 +1,49 @@
+// src/pages/ReportDetails.jsx
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-
-const REPORTS_DATA = {
-  1: {
-    id: 1,
-    title: 'Report #42: Overflowing Waste Bin',
-    severity: 'CRITICAL SEVERITY',
-    status: 'IN PROGRESS',
-    description: 'Waste container overflowing on 26th of July St. obstructing sidewalk. The accumulation includes large plastic bags and loose debris, creating a significant obstruction for pedestrians and an unsanitary environment.',
-    category: 'General Waste',
-    location: '26th of July St, Zamalek',
-    lat: '30.0595',
-    lng: '31.2223',
-    reportedBy: { name: 'Ahmed El-Sayed', role: 'Citizen Contributor', reports: 14, initials: 'AS' },
-    beforePhotos: [
-      'https://placehold.co/120x90/e2e8f0/94a3b8?text=Photo+1',
-      'https://placehold.co/120x90/e2e8f0/94a3b8?text=Photo+2',
-      'https://placehold.co/120x90/e2e8f0/94a3b8?text=Photo+3',
-    ],
-    statusHistory: [
-      { icon: '↺', iconBg: '#22c55e', title: 'Moved to In Progress', detail: 'Update by: Admin Sarah J.', time: 'Today, 11:38 AM' },
-      { icon: '📋', iconBg: '#94a3b8', title: 'Report Assigned', detail: 'Assigned to: Zone A Cleanup Team', time: 'Today, 10:08 AM' },
-    ],
-  },
-}
+import { reportsService } from '../services/api'
 
 const SEV_STYLE = {
-  'CRITICAL SEVERITY': { background: '#fee2e2', color: '#dc2626' },
-  'HIGH SEVERITY':     { background: '#fef3c7', color: '#d97706' },
-  'LOW SEVERITY':      { background: '#dcfce7', color: '#16a34a' },
+  critical: { background: '#fee2e2', color: '#dc2626' },
+  high:     { background: '#fef3c7', color: '#d97706' },
+  medium:   { background: '#dbeafe', color: '#2563eb' },
+  low:      { background: '#dcfce7', color: '#16a34a' },
 }
 
 const STATUS_STYLE = {
-  'IN PROGRESS': { background: '#dcfce7', color: '#16a34a' },
-  'ASSIGNED':    { background: '#dbeafe', color: '#2563eb' },
-  'RESOLVED':    { background: '#f1f5f9', color: '#64748b' },
+  pending:     { background: '#f1f5f9', color: '#64748b' },
+  assigned:    { background: '#dbeafe', color: '#2563eb' },
+  in_progress: { background: '#dcfce7', color: '#16a34a' },
+  resolved:    { background: '#f1f5f9', color: '#64748b' },
+  rejected:    { background: '#fee2e2', color: '#dc2626' },
 }
 
+const STATUS_OPTIONS = [
+  { value: 'assigned', label: 'Assigned' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'rejected', label: 'Rejected' },
+]
+
 function LeafletMap({ lat, lng }) {
-  const mapRef     = useRef(null)
+  const mapRef = useRef(null)
   const mapInitRef = useRef(false)
 
   useEffect(() => {
-    if (mapInitRef.current) return
+    if (mapInitRef.current || !lat || !lng) return
     mapInitRef.current = true
 
     if (!document.getElementById('leaflet-css')) {
       const link = document.createElement('link')
-      link.id    = 'leaflet-css'
-      link.rel   = 'stylesheet'
-      link.href  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      link.id = 'leaflet-css'
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
       document.head.appendChild(link)
     }
 
-    if (!window.L) {
-      const script  = document.createElement('script')
-      script.src    = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-      script.onload = () => initMap()
-      document.head.appendChild(script)
-    } else {
-      initMap()
-    }
-
-    function initMap() {
+    const initMap = () => {
       if (!mapRef.current) return
-      const map = window.L.map(mapRef.current).setView([lat, lng], 15)
+      const map = window.L.map(mapRef.current).setView([parseFloat(lat), parseFloat(lng)], 15)
       window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
       }).addTo(map)
@@ -73,7 +52,16 @@ function LeafletMap({ lat, lng }) {
         html: `<div style="width:14px;height:14px;background:#dc3545;border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.4);"></div>`,
         iconSize: [14, 14], iconAnchor: [7, 7],
       })
-      window.L.marker([lat, lng], { icon }).addTo(map)
+      window.L.marker([parseFloat(lat), parseFloat(lng)], { icon }).addTo(map)
+    }
+
+    if (!window.L) {
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.onload = initMap
+      document.head.appendChild(script)
+    } else {
+      initMap()
     }
 
     return () => {
@@ -87,31 +75,123 @@ function LeafletMap({ lat, lng }) {
 }
 
 export default function ReportDetails() {
-  const { id }   = useParams()
+  const { id } = useParams()
   const navigate = useNavigate()
-  const report   = REPORTS_DATA[id] || REPORTS_DATA[1]
-
-  const [status,        setStatus]        = useState('In Progress')
-  const [notes,         setNotes]         = useState('Cleanup crew dispatched to 26th of July St. Expected arrival within 30 minutes. Priority level verified as critical.')
-  const [dragOver,      setDragOver]      = useState(false)
-  const [uploadedPhoto, setUploadedPhoto] = useState(null)
-  const [lightboxImg,   setLightboxImg]   = useState(null)
   const fileInputRef = useRef(null)
+
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [status, setStatus] = useState('')
+  const [notes, setNotes] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const [uploadedPhoto, setUploadedPhoto] = useState(null)
+  const [uploadedPhotoFile, setUploadedPhotoFile] = useState(null)
+  const [lightboxImg, setLightboxImg] = useState(null)
+  const [updateLoading, setUpdateLoading] = useState(false)
+  const [updateError, setUpdateError] = useState(null)
+  const [updateSuccess, setUpdateSuccess] = useState(false)
+
+  // Fetch report details
+  useEffect(() => {
+    fetchReport()
+  }, [id])
+
+ // في fetchReport:
+const fetchReport = async () => {
+  setLoading(true)
+  setError(null)
+  try {
+    const res = await reportsService.getById(id)
+    // ✅ res.data = { success: true, data: { ... } }
+    const data = res.data.data || res.data
+    setReport(data)
+    setStatus(data.status || 'assigned')
+  } catch (err) {
+    setError(err.response?.data?.message || 'Failed to load report')
+  } finally {
+    setLoading(false)
+  }
+}
 
   const handleFileChange = (e) => {
     const file = e.target.files[0]
-    if (file) setUploadedPhoto(URL.createObjectURL(file))
+    if (file) {
+      setUploadedPhoto(URL.createObjectURL(file))
+      setUploadedPhotoFile(file)
+    }
   }
 
   const handleDrop = (e) => {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
-    if (file) setUploadedPhoto(URL.createObjectURL(file))
+    if (file) {
+      setUploadedPhoto(URL.createObjectURL(file))
+      setUploadedPhotoFile(file)
+    }
   }
 
-  const sevStyle    = SEV_STYLE[report.severity]  || SEV_STYLE['CRITICAL SEVERITY']
-  const statusStyle = STATUS_STYLE[report.status] || STATUS_STYLE['ASSIGNED']
+  const handleUpdateStatus = async () => {
+    setUpdateLoading(true)
+    setUpdateError(null)
+    setUpdateSuccess(false)
+
+    const formData = new FormData()
+    formData.append('status', status)
+    if (notes) formData.append('note', notes)
+    if (uploadedPhotoFile) formData.append('after_image', uploadedPhotoFile)
+
+    // Validation: resolved requires after_image
+    if (status === 'resolved' && !uploadedPhotoFile && !report?.images?.some(img => img.type === 'after')) {
+      setUpdateError('After photo is required when marking as resolved')
+      setUpdateLoading(false)
+      return
+    }
+
+    try {
+      const res = await reportsService.updateStatus(id, formData)
+      setUpdateSuccess(true)
+      // Refresh report data
+      await fetchReport()
+      setUploadedPhoto(null)
+      setUploadedPhotoFile(null)
+      setNotes('')
+      setTimeout(() => setUpdateSuccess(false), 3000)
+    } catch (err) {
+      setUpdateError(err.response?.data?.message || err.response?.data?.error || 'Failed to update status')
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
+  const getImageUrl = (path) => {
+    if (!path) return null
+    return `http://localhost:8000/storage/${path}`
+  }
+
+  if (loading) {
+    return (
+      <div className="d-flex align-items-center justify-content-center" style={{ minHeight: '100vh', background: '#f8f9fa' }}>
+        <div className="spinner-border text-primary" />
+      </div>
+    )
+  }
+
+  if (error || !report) {
+    return (
+      <div className="d-flex align-items-center justify-content-center flex-column" style={{ minHeight: '100vh', background: '#f8f9fa' }}>
+        <div className="text-danger mb-3">⚠️ {error || 'Report not found'}</div>
+        <button className="btn btn-primary" onClick={() => navigate('/company/reports')}>Back to Reports</button>
+      </div>
+    )
+  }
+
+  const sevStyle = SEV_STYLE[report.severity] || SEV_STYLE.low
+  const statusStyle = STATUS_STYLE[report.status] || STATUS_STYLE.pending
+
+  const beforePhotos = report.images?.filter(img => img.type === 'before') || []
+  const afterPhotos = report.images?.filter(img => img.type === 'after') || []
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
@@ -147,9 +227,23 @@ export default function ReportDetails() {
       <div className="p-3">
         <h5 className="fw-bold mb-2" style={{ fontSize: '1.35rem', color: '#0f172a' }}>{report.title}</h5>
         <div className="d-flex align-items-center gap-2 mb-3">
-          <span className="fw-semibold px-2 py-1 rounded-pill" style={{ fontSize: '.72rem', ...sevStyle }}>{report.severity}</span>
-          <span className="fw-semibold px-2 py-1 rounded-pill" style={{ fontSize: '.72rem', ...statusStyle }}>{report.status}</span>
+          <span className="fw-semibold px-2 py-1 rounded-pill text-uppercase" style={{ fontSize: '.72rem', ...sevStyle }}>{report.severity}</span>
+          <span className="fw-semibold px-2 py-1 rounded-pill text-capitalize" style={{ fontSize: '.72rem', ...statusStyle }}>{report.status?.replace('_', ' ')}</span>
         </div>
+
+        {/* Alerts */}
+        {updateSuccess && (
+          <div className="alert alert-success alert-dismissible fade show">
+            ✓ Status updated successfully!
+            <button className="btn-close" onClick={() => setUpdateSuccess(false)}></button>
+          </div>
+        )}
+        {updateError && (
+          <div className="alert alert-danger alert-dismissible fade show">
+            {updateError}
+            <button className="btn-close" onClick={() => setUpdateError(null)}></button>
+          </div>
+        )}
 
         <div className="row g-3">
           <div className="col-lg-7">
@@ -158,7 +252,9 @@ export default function ReportDetails() {
               <div className="card-body p-3">
                 <div className="text-uppercase text-secondary fw-bold mb-2" style={{ fontSize: '.65rem', letterSpacing: '.08em' }}>Report Description</div>
                 <p className="text-secondary mb-3" style={{ fontSize: '.88rem', lineHeight: 1.6 }}>{report.description}</p>
-                <span className="border rounded-pill px-3 py-1 text-secondary" style={{ fontSize: '.78rem' }}>⚙ {report.category}</span>
+                <span className="border rounded-pill px-3 py-1 text-secondary" style={{ fontSize: '.78rem' }}>
+                  ⚙ {report.category?.name || 'General'}
+                </span>
               </div>
             </div>
 
@@ -168,11 +264,11 @@ export default function ReportDetails() {
                 <div className="d-flex align-items-start gap-2 mb-2">
                   <span style={{ color: '#0d6efd', fontSize: '1rem' }}>📍</span>
                   <div>
-                    <div className="fw-semibold" style={{ fontSize: '.9rem', color: '#1e293b' }}>{report.location}</div>
-                    <div className="text-secondary" style={{ fontSize: '.8rem' }}>Lat: {report.lat}, Lng: {report.lng}</div>
+                    <div className="fw-semibold" style={{ fontSize: '.9rem', color: '#1e293b' }}>{report.address || report.city?.name || 'Unknown location'}</div>
+                    <div className="text-secondary" style={{ fontSize: '.8rem' }}>Lat: {report.latitude}, Lng: {report.longitude}</div>
                   </div>
                 </div>
-                <LeafletMap lat={parseFloat(report.lat)} lng={parseFloat(report.lng)} />
+                <LeafletMap lat={report.latitude} lng={report.longitude} />
               </div>
             </div>
 
@@ -181,31 +277,56 @@ export default function ReportDetails() {
                 <div className="text-uppercase text-secondary fw-bold mb-3" style={{ fontSize: '.65rem', letterSpacing: '.08em' }}>Reported By</div>
                 <div className="d-flex align-items-center gap-3">
                   <div className="rounded-circle d-flex align-items-center justify-content-center text-white fw-bold flex-shrink-0"
-                    style={{ width: 40, height: 40, background: '#94a3b8', fontSize: '.85rem' }}>{report.reportedBy.initials}</div>
+                    style={{ width: 40, height: 40, background: '#94a3b8', fontSize: '.85rem' }}>
+                    {report.user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
+                  </div>
                   <div>
-                    <div className="fw-semibold" style={{ fontSize: '.9rem', color: '#1e293b' }}>{report.reportedBy.name}</div>
-                    <div className="text-secondary" style={{ fontSize: '.78rem' }}>{report.reportedBy.role} · {report.reportedBy.reports} reports</div>
+                    <div className="fw-semibold" style={{ fontSize: '.9rem', color: '#1e293b' }}>{report.user?.name || 'Anonymous'}</div>
+                    <div className="text-secondary" style={{ fontSize: '.78rem' }}>
+                      {report.user?.role || 'Citizen'} · {report.user?.reports_count || 0} reports
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="card border shadow-none">
+            {/* Before Photos */}
+            <div className="card border shadow-none mb-3">
               <div className="card-body p-3">
                 <div className="text-uppercase text-secondary fw-bold mb-3" style={{ fontSize: '.65rem', letterSpacing: '.08em' }}>
-                  Before Photos ({report.beforePhotos.length})
+                  Before Photos ({beforePhotos.length})
                 </div>
-                <div className="d-flex gap-2 flex-wrap">
-                  {report.beforePhotos.map((src, i) => (
-                    <img key={i} src={src} alt={`before-${i}`} className="rounded-2"
-                      style={{ width: 110, height: 85, objectFit: 'cover', cursor: 'zoom-in', transition: 'opacity .15s' }}
-                      onClick={() => setLightboxImg(src)}
-                      onMouseEnter={e => e.target.style.opacity = '.8'}
-                      onMouseLeave={e => e.target.style.opacity = '1'} />
-                  ))}
-                </div>
+                {beforePhotos.length > 0 ? (
+                  <div className="d-flex gap-2 flex-wrap">
+                    {beforePhotos.map((img, i) => (
+                      <img key={i} src={getImageUrl(img.image_path)} alt={`before-${i}`} className="rounded-2"
+                        style={{ width: 110, height: 85, objectFit: 'cover', cursor: 'zoom-in' }}
+                        onClick={() => setLightboxImg(getImageUrl(img.image_path))} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-secondary" style={{ fontSize: '.85rem' }}>No before photos</div>
+                )}
               </div>
             </div>
+
+            {/* After Photos */}
+            {afterPhotos.length > 0 && (
+              <div className="card border shadow-none">
+                <div className="card-body p-3">
+                  <div className="text-uppercase text-secondary fw-bold mb-3" style={{ fontSize: '.65rem', letterSpacing: '.08em' }}>
+                    After Photos ({afterPhotos.length})
+                  </div>
+                  <div className="d-flex gap-2 flex-wrap">
+                    {afterPhotos.map((img, i) => (
+                      <img key={i} src={getImageUrl(img.image_path)} alt={`after-${i}`} className="rounded-2"
+                        style={{ width: 110, height: 85, objectFit: 'cover', cursor: 'zoom-in' }}
+                        onClick={() => setLightboxImg(getImageUrl(img.image_path))} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
           </div>
 
@@ -217,18 +338,20 @@ export default function ReportDetails() {
 
                 <label className="form-label fw-semibold" style={{ fontSize: '.85rem' }}>Report Status</label>
                 <select className="form-select mb-3" style={{ fontSize: '.88rem' }} value={status} onChange={e => setStatus(e.target.value)}>
-                  <option>Assigned</option>
-                  <option>In Progress</option>
-                  <option>Resolved</option>
-                  <option>Rejected</option>
+                  {STATUS_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
 
                 <label className="form-label fw-semibold" style={{ fontSize: '.85rem' }}>Internal Notes</label>
                 <textarea className="form-control mb-3" rows={4} style={{ fontSize: '.85rem', resize: 'vertical' }}
+                  placeholder="Add notes about this status update..."
                   value={notes} onChange={e => setNotes(e.target.value)} />
 
-                <label className="form-label fw-semibold" style={{ fontSize: '.85rem' }}>Upload After Photo (Mandatory for Resolve)</label>
-                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" style={{ display: 'none' }} onChange={handleFileChange} />
+                <label className="form-label fw-semibold" style={{ fontSize: '.85rem' }}>
+                  Upload After Photo {status === 'resolved' && <span className="text-danger">*</span>}
+                </label>
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFileChange} />
 
                 {uploadedPhoto ? (
                   <div className="position-relative mb-3">
@@ -237,7 +360,7 @@ export default function ReportDetails() {
                       onClick={() => setLightboxImg(uploadedPhoto)} />
                     <button className="btn btn-sm btn-danger position-absolute top-0 end-0 m-1 rounded-circle"
                       style={{ width: 26, height: 26, padding: 0, fontSize: '.75rem' }}
-                      onClick={() => setUploadedPhoto(null)}>✕</button>
+                      onClick={() => { setUploadedPhoto(null); setUploadedPhotoFile(null) }}>✕</button>
                   </div>
                 ) : (
                   <div className="rounded-3 d-flex flex-column align-items-center justify-content-center p-3 mb-3"
@@ -251,28 +374,54 @@ export default function ReportDetails() {
                       <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
                     </svg>
                     <div className="fw-semibold" style={{ fontSize: '.83rem', color: '#334155' }}>Click to upload or drag & drop</div>
-                    <div className="text-secondary" style={{ fontSize: '.75rem' }}>JPEG, PNG up to 10MB</div>
+                    <div className="text-secondary" style={{ fontSize: '.75rem' }}>JPEG, PNG, WebP up to 5MB</div>
                   </div>
                 )}
 
-                <button className="btn btn-primary w-100 fw-bold" style={{ fontSize: '.9rem' }}>Save Status Update</button>
+                <button 
+                  className="btn btn-primary w-100 fw-bold" 
+                  style={{ fontSize: '.9rem' }}
+                  onClick={handleUpdateStatus}
+                  disabled={updateLoading}
+                >
+                  {updateLoading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Save Status Update'
+                  )}
+                </button>
               </div>
             </div>
 
             <div className="card border shadow-none">
               <div className="card-body p-3">
                 <div className="text-uppercase text-secondary fw-bold mb-3" style={{ fontSize: '.65rem', letterSpacing: '.08em' }}>Status History</div>
-                {report.statusHistory.map((h, i) => (
-                  <div key={i} className="d-flex align-items-start gap-3 mb-3">
-                    <div className="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0"
-                      style={{ width: 34, height: 34, background: h.iconBg, fontSize: '.85rem' }}>{h.icon}</div>
-                    <div>
-                      <div className="fw-semibold" style={{ fontSize: '.87rem', color: '#1e293b' }}>{h.title}</div>
-                      <div className="text-secondary" style={{ fontSize: '.78rem' }}>{h.detail}</div>
-                      <div className="text-primary" style={{ fontSize: '.75rem' }}>{h.time}</div>
+                {report.status_history?.length > 0 ? (
+                  report.status_history.map((h, i) => (
+                    <div key={i} className="d-flex align-items-start gap-3 mb-3">
+                      <div className="rounded-circle d-flex align-items-center justify-content-center text-white flex-shrink-0"
+                        style={{ width: 34, height: 34, background: h.to_status === 'resolved' ? '#16a34a' : h.to_status === 'in_progress' ? '#d97706' : '#2563eb', fontSize: '.85rem' }}>
+                        {h.to_status === 'resolved' ? '✓' : h.to_status === 'in_progress' ? '▶' : '📋'}
+                      </div>
+                      <div>
+                        <div className="fw-semibold" style={{ fontSize: '.87rem', color: '#1e293b' }}>
+                          {h.from_status === h.to_status ? 'Report Submitted' : `Changed to ${h.to_status?.replace('_', ' ')}`}
+                        </div>
+                        <div className="text-secondary" style={{ fontSize: '.78rem' }}>
+                          {h.note || `Status updated by ${h.changer?.name || 'System'}`}
+                        </div>
+                        <div className="text-primary" style={{ fontSize: '.75rem' }}>
+                          {new Date(h.created_at).toLocaleString()}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <div className="text-secondary" style={{ fontSize: '.85rem' }}>No status history yet</div>
+                )}
               </div>
             </div>
 

@@ -1,5 +1,5 @@
 import './App.css';
-
+import "leaflet/dist/leaflet.css";
 // Bootstrap
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap/dist/js/bootstrap.bundle.min.js";
@@ -23,7 +23,7 @@ import MapView          from './pages/MapView.jsx';
 import AddMember        from './pages/AddMember.jsx';
 
 // ── Pages - Auth ──
-import SignIn        from './Users/Pages/authcation/SignIn.jsx';
+import SignIn        from './Users/Pages/authcation/SignUp.jsx';
 import Login         from './Users/Pages/authcation/Login.jsx';
 
 // ── Pages - User ──

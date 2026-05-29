@@ -1,38 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-
-// ══════════════════════════════════════
-//  DUMMY DATA
-// ══════════════════════════════════════
-const REPORT = {
-  id:          42,
-  title:       'Exposed Wiring',
-  severity:    'CRITICAL',
-  token:       'CZ-9928-X4',
-  description: 'Several electrical wires are exposed at the base of a streetlamp on 26th of July Corridor. This poses a significant safety risk to pedestrians, especially children, and is highly dangerous during rain.',
-  category:    'Public Infrastructure',
-  city:        'Cairo, Egypt',
-  date:        'October 12, 2024',
-  impact:      'High Traffic Area',
-  upvotes:     142,
-  location:    '26th of July St, Zamalek',
-  lat:          30.0626,
-  lng:          31.2197,
-  status:      'IN PROGRESS',
-  timeline: [
-    { label: 'Pending',     date: 'Oct 12, 10:00 AM', done: true,  active: false },
-    { label: 'Assigned',    date: 'Oct 12, 02:30 PM', done: true,  active: false },
-    { label: 'In Progress', date: 'Oct 13, 09:15 AM', done: true,  active: true  },
-    { label: 'Resolved',    date: 'Estimated: Oct 15',done: false, active: false },
-  ],
-  beforePhotos: [
-    'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=400&fit=crop',
-    'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=600&h=400&fit=crop',
-    'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=600&h=400&fit=crop',
-    'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=600&h=400&fit=crop',
-  ],
-  afterPhotos: [],
-}
+import { reportsService } from './../../services/api.js'
 
 // ── Leaflet Map ──
 function ReportMap({ lat, lng }) {
@@ -75,23 +43,180 @@ function ReportMap({ lat, lng }) {
 export default function UserReportDetails() {
   const { id }   = useParams()
   const navigate = useNavigate()
-  const report   = REPORT
 
-  const [upvoted,    setUpvoted]    = useState(false)
-  const [upvotes,    setUpvotes]    = useState(report.upvotes)
-  const [photoTab,   setPhotoTab]   = useState('Before')
-  const [lightbox,   setLightbox]   = useState(null)
-  const [rating,     setRating]     = useState(0)
-  const [hoverRating,setHoverRating]= useState(0)
-  const [feedback,   setFeedback]   = useState('')
-  const isResolved = report.status === 'RESOLVED'
+  const [report,       setReport]       = useState(null)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [upvoted,      setUpvoted]      = useState(false)
+  const [upvotes,      setUpvotes]      = useState(0)
+  const [photoTab,     setPhotoTab]     = useState('Before')
+  const [lightbox,     setLightbox]     = useState(null)
+  const [rating,       setRating]       = useState(0)
+  const [hoverRating,  setHoverRating]  = useState(0)
+  const [feedback,     setFeedback]     = useState('')
+  const [submitting,   setSubmitting]   = useState(false)
+  const [ratingSubmit,  setRatingSubmit] = useState(false)
 
-  const handleUpvote = () => {
-    setUpvoted(!upvoted)
-    setUpvotes(u => upvoted ? u - 1 : u + 1)
+  // ── Fetch Report Data ──
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const response = await reportsService.getById(id)
+        const data = response.data.data
+        setReport(data)
+        setUpvotes(data.upvotes_count || 0)
+        setUpvoted(data.user_has_upvoted || false)
+        if (data.rating) {
+          setRating(data.rating.rating || 0)
+          setFeedback(data.rating.comment || '')
+        }
+      } catch (err) {
+        if (err.response?.status === 404) {
+          setError('البلاغ غير موجود')
+        } else if (err.response?.status === 403) {
+          setError('غير مصرح لك بعرض هذا البلاغ')
+        } else {
+          setError(err.response?.data?.message || 'فشل في تحميل تفاصيل البلاغ')
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchReport()
+  }, [id])
+
+  const isResolved = report?.status === 'resolved'
+
+  // ── Handle Upvote ──
+  const handleUpvote = async () => {
+    try {
+      setSubmitting(true)
+      await reportsService.upvote(id)
+      setUpvoted(!upvoted)
+      setUpvotes(u => upvoted ? u - 1 : u + 1)
+    } catch (err) {
+      alert(err.response?.data?.message || 'فشل في التصويت')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const photos = photoTab === 'Before' ? report.beforePhotos : report.afterPhotos
+  // ── Handle Rating ──
+  const handleSubmitRating = async () => {
+    if (rating === 0) {
+      alert('الرجاء اختيار تقييم')
+      return
+    }
+    try {
+      setRatingSubmit(true)
+    await reportsService.rate(id, { rating, comment: feedback })
+      alert('تم إرسال التقييم بنجاح')
+    } catch (err) {
+      alert(err.response?.data?.message || 'فشل في إرسال التقييم')
+    } finally {
+      setRatingSubmit(false)
+    }
+  }
+
+  // ── Helpers ──
+  const getStatusColor = (status) => {
+    const colors = {
+      pending:     '#f59e0b',
+      assigned:    '#3b82f6',
+      in_progress: '#8b5cf6',
+      resolved:    '#10b981',
+      rejected:    '#ef4444'
+    }
+    return colors[status] || '#6b7280'
+  }
+
+  const getStatusLabel = (status) => {
+    const labels = {
+      pending:     'معلق',
+      assigned:    'تم التعيين',
+      in_progress: 'قيد التنفيذ',
+      resolved:    'تم الحل',
+      rejected:    'مرفوض'
+    }
+    return labels[status] || status
+  }
+
+  const getSeverityColor = (severity) => {
+    const colors = {
+      low:      '#3b82f6',
+      medium:   '#f59e0b',
+      high:     '#f97316',
+      critical: '#dc2626'
+    }
+    return colors[severity] || '#6b7280'
+  }
+
+  const getSeverityLabel = (severity) => {
+    const labels = {
+      low:      'منخفض',
+      medium:   'متوسط',
+      high:     'عالي',
+      critical: 'حرج'
+    }
+    return labels[severity] || severity
+  }
+
+  const buildTimeline = () => {
+    if (!report) return []
+    const history = report.status_history || []
+    const steps = ['pending', 'assigned', 'in_progress', 'resolved']
+    return steps.map((step, i) => {
+      const histItem = history.find(h => h.status === step)
+      const done = histItem !== undefined || 
+        (step === 'pending' && report.created_at) ||
+        (step === 'resolved' && report.status === 'resolved')
+      const active = report.status === step
+      return {
+        label: getStatusLabel(step),
+        date: histItem ? new Date(histItem.created_at).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) 
+             : step === 'resolved' && !done ? 'متوقع قريباً' 
+             : '',
+        done,
+        active
+      }
+    })
+  }
+
+  const getPhotos = () => {
+    if (!report?.images) return []
+    return report.images
+      .filter(img => img.type === (photoTab === 'Before' ? 'before' : 'after'))
+      .map(img => img.image_path)
+  }
+
+  const photos = getPhotos()
+  const timeline = buildTimeline()
+
+  if (loading) return (
+    <div style={{ background: '#f8f9fa', minHeight: '100vh' }} className="d-flex align-items-center justify-content-center">
+      <div className="text-center">
+        <div className="spinner-border text-success mb-3" role="status" />
+        <p className="text-secondary">جاري التحميل...</p>
+      </div>
+    </div>
+  )
+
+  if (error) return (
+    <div style={{ background: '#f8f9fa', minHeight: '100vh' }} className="d-flex align-items-center justify-content-center">
+      <div className="text-center">
+        <i className="bi bi-exclamation-circle text-danger" style={{ fontSize: '3rem' }} />
+        <h4 className="mt-3 text-danger">{error}</h4>
+        <button className="btn btn-success mt-3" onClick={() => navigate('/user/my-reports')}>
+          العودة لبلاغاتي
+        </button>
+      </div>
+    </div>
+  )
+
+  if (!report) return null
 
   return (
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }}>
@@ -99,27 +224,25 @@ export default function UserReportDetails() {
 
         {/* Breadcrumb */}
         <div className="d-flex align-items-center gap-2 mb-4" style={{ fontSize: '.85rem' }}>
-          <button className="btn btn-link p-0 text-secondary text-decoration-none" onClick={() => navigate('/user/dashboard')}>
-            My Reports
+          <button className="btn btn-link p-0 text-secondary text-decoration-none" onClick={() => navigate('/user/my-reports')}>
+            بلاغاتي
           </button>
           <span className="text-secondary">›</span>
-          <span style={{ color: '#0f172a' }}>Report #{id || report.id}</span>
+          <span style={{ color: '#0f172a' }}>بلاغ #{id || report.id}</span>
         </div>
 
         {/* ── Status Timeline ── */}
         <div className="card border shadow-none mb-3">
           <div className="card-body p-4">
             <div className="d-flex align-items-center justify-content-between flex-wrap gap-3">
-              {report.timeline.map((t, i) => (
+              {timeline.map((t, i) => (
                 <div key={i} className="d-flex flex-column align-items-center gap-1 flex-grow-1 position-relative">
-                  {/* Line */}
-                  {i < report.timeline.length - 1 && (
+                  {i < timeline.length - 1 && (
                     <div style={{
                       position: 'absolute', top: 18, left: '60%', right: '-40%',
                       height: 2, background: t.done ? '#16a34a' : '#e2e8f0', zIndex: 0,
                     }} />
                   )}
-                  {/* Circle */}
                   <div
                     className="rounded-circle d-flex align-items-center justify-content-center"
                     style={{
@@ -152,11 +275,11 @@ export default function UserReportDetails() {
                 <div className="d-flex align-items-start justify-content-between mb-2">
                   <span
                     className="badge fw-bold rounded-2 px-2 py-1"
-                    style={{ background: '#fee2e2', color: '#dc2626', fontSize: '.68rem' }}
-                  >{report.severity}</span>
+                    style={{ background: getSeverityColor(report.severity) + '20', color: getSeverityColor(report.severity), fontSize: '.68rem' }}
+                  >{getSeverityLabel(report.severity).toUpperCase()}</span>
                   <div className="text-end">
-                    <div className="text-secondary" style={{ fontSize: '.72rem' }}>Tracking Token</div>
-                    <div className="fw-bold" style={{ fontSize: '.85rem', color: '#16a34a', fontFamily: 'monospace' }}>{report.token}</div>
+                    <div className="text-secondary" style={{ fontSize: '.72rem' }}>رمز التتبع</div>
+                    <div className="fw-bold" style={{ fontSize: '.85rem', color: '#16a34a', fontFamily: 'monospace' }}>{report.tracking_token}</div>
                   </div>
                 </div>
 
@@ -167,10 +290,10 @@ export default function UserReportDetails() {
 
                 <div className="row g-3">
                   {[
-                    { icon: 'bi-grid',        label: 'Category',      value: report.category },
-                    { icon: 'bi-geo-alt',      label: 'City',          value: report.city     },
-                    { icon: 'bi-calendar3',    label: 'Date Reported', value: report.date     },
-                    { icon: 'bi-people',       label: 'Impact Level',  value: report.impact   },
+                    { icon: 'bi-grid',        label: 'التصنيف',       value: report.category?.name || report.category },
+                    { icon: 'bi-geo-alt',      label: 'المدينة',       value: report.city?.name || report.city },
+                    { icon: 'bi-calendar3',    label: 'تاريخ البلاغ',  value: new Date(report.created_at).toLocaleDateString('ar-EG') },
+                    { icon: 'bi-people',       label: 'العنوان',       value: report.address || 'غير محدد' },
                   ].map((f, i) => (
                     <div key={i} className="col-6">
                       <div className="text-secondary mb-1" style={{ fontSize: '.72rem', fontWeight: 600 }}>{f.label}</div>
@@ -181,6 +304,27 @@ export default function UserReportDetails() {
                     </div>
                   ))}
                 </div>
+
+                {report.assigned_company && (
+                  <>
+                    <hr className="my-3" />
+                    <div className="d-flex align-items-center gap-2">
+                      <i className="bi bi-building text-success" />
+                      <span className="fw-semibold" style={{ fontSize: '.85rem' }}>الشركة المسندة:</span>
+                      <span style={{ fontSize: '.85rem', color: '#334155' }}>{report.assigned_company.name}</span>
+                    </div>
+                  </>
+                )}
+
+                {report.rejection_reason && (
+                  <>
+                    <hr className="my-3" />
+                    <div className="alert alert-danger" style={{ fontSize: '.82rem' }}>
+                      <i className="bi bi-exclamation-triangle me-2" />
+                      <strong>سبب الرفض:</strong> {report.rejection_reason}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -195,12 +339,13 @@ export default function UserReportDetails() {
                     border: 'none', borderRadius: 8, fontSize: '.88rem',
                   }}
                   onClick={handleUpvote}
+                  disabled={submitting}
                 >
                   <i className="bi bi-hand-thumbs-up-fill" />
-                  Upvote ({upvotes})
+                  {submitting ? 'جاري التحميل...' : `upvote (${upvotes})`}
                 </button>
                 <button className="btn btn-link text-decoration-none fw-semibold" style={{ color: '#16a34a', fontSize: '.85rem' }}>
-                  Support this report
+                  ادعم هذا البلاغ
                 </button>
               </div>
             </div>
@@ -213,11 +358,11 @@ export default function UserReportDetails() {
               <div className="card-body p-4">
                 <div className="d-flex align-items-center gap-2 mb-2">
                   <i className="bi bi-lock-fill text-secondary" style={{ fontSize: '.9rem' }} />
-                  <span className="fw-bold" style={{ fontSize: '.95rem' }}>Post-Resolution Feedback</span>
+                  <span className="fw-bold" style={{ fontSize: '.95rem' }}>تقييم الحل</span>
                 </div>
                 {!isResolved && (
                   <p className="text-secondary mb-3" style={{ fontSize: '.82rem' }}>
-                    This section will unlock once the issue is marked as 'Resolved'.
+                    هذا القسم سيتفتح عندما يتم حل البلاغ.
                   </p>
                 )}
 
@@ -238,12 +383,25 @@ export default function UserReportDetails() {
                 <textarea
                   className="form-control"
                   rows={3}
-                  placeholder="Share your feedback..."
+                  placeholder="شاركنا رأيك..."
                   style={{ fontSize: '.85rem', resize: 'none', background: '#f8fafc', border: '1px solid #e2e8f0' }}
                   disabled={!isResolved}
                   value={feedback}
                   onChange={e => setFeedback(e.target.value)}
                 />
+
+                {isResolved && (
+                  <div className="d-flex justify-content-end mt-3">
+                    <button
+                      className="btn fw-bold px-4"
+                      style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 8, fontSize: '.88rem' }}
+                      onClick={handleSubmitRating}
+                      disabled={ratingSubmit}
+                    >
+                      {ratingSubmit ? 'جاري الإرسال...' : 'إرسال التقييم'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -268,7 +426,7 @@ export default function UserReportDetails() {
                         background: 'none', fontSize: '.88rem',
                       }}
                       onClick={() => setPhotoTab(tab)}
-                    >{tab}</button>
+                    >{tab === 'Before' ? 'قبل' : 'بعد'}</button>
                   ))}
                 </div>
 
@@ -276,7 +434,7 @@ export default function UserReportDetails() {
                   {photos.length === 0 ? (
                     <div className="text-center py-4 text-secondary" style={{ fontSize: '.85rem' }}>
                       <i className="bi bi-image" style={{ fontSize: '2rem', opacity: .3 }} />
-                      <div className="mt-2">No {photoTab.toLowerCase()} photos yet</div>
+                      <div className="mt-2">لا توجد صور {photoTab === 'Before' ? 'قبل' : 'بعد'} حتى الآن</div>
                     </div>
                   ) : (
                     <>
@@ -315,13 +473,19 @@ export default function UserReportDetails() {
                 <div className="d-flex align-items-center justify-content-between mb-2">
                   <div className="d-flex align-items-center gap-1">
                     <i className="bi bi-geo-alt-fill text-success" />
-                    <span className="fw-semibold" style={{ fontSize: '.88rem' }}>{report.location}</span>
+                    <span className="fw-semibold" style={{ fontSize: '.88rem' }}>{report.address || report.city?.name || 'الموقع'}</span>
                   </div>
-                  <button className="btn btn-link p-0 text-decoration-none fw-semibold" style={{ color: '#16a34a', fontSize: '.8rem' }}>
-                    OPEN MAPS
-                  </button>
+                  <a 
+                    href={`https://www.google.com/maps?q=${report.latitude},${report.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-link p-0 text-decoration-none fw-semibold"
+                    style={{ color: '#16a34a', fontSize: '.8rem' }}
+                  >
+                    فتح الخريطة
+                  </a>
                 </div>
-                <ReportMap lat={report.lat} lng={report.lng} />
+                <ReportMap lat={report.latitude || 30.0626} lng={report.longitude || 31.2197} />
               </div>
             </div>
 

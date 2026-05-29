@@ -1,45 +1,62 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../../../Context/AuthContext'
 
 export default function LogIn() {
   const navigate = useNavigate()
+  const { login } = useAuth()
 
-  const [form,       setForm]       = useState({ email: '', password: '', remember: false })
-  const [errors,     setErrors]     = useState({})
-  const [showPass,   setShowPass]   = useState(false)
+  const [form,     setForm]     = useState({ email: '', password: '', remember: false })
+  const [errors,   setErrors]   = useState({})
+  const [apiError, setApiError] = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [showPass, setShowPass] = useState(false)
 
-  const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: '' })) }
+  const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: '' })); setApiError('') }
 
   const validate = () => {
     const e = {}
-    if (!form.email.trim())    e.email    = 'Required'
+    if (!form.email.trim()) e.email = 'Required'
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Invalid email'
-    if (!form.password)        e.password = 'Required'
+    if (!form.password) e.password = 'Required'
     return e
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     const errs = validate()
     if (Object.keys(errs).length) { setErrors(errs); return }
-    // TODO: call API → POST /auth/login
-    // API بترجع token + role → navigate accordingly
-    // role === 'citizen' → navigate('/user/dashboard')
-    // role === 'company' → navigate('/')
-    // role === 'admin'   → navigate('/admin/dashboard')
+
+    setLoading(true)
+    try {
+      const user = await login({ email: form.email, password: form.password })
+      if (user.role === 'admin')   return navigate('/admin/dashboard', { replace: true })
+      if (user.role === 'company') return navigate('/company',         { replace: true })
+      navigate('/user/dashboard', { replace: true })
+    } catch (err) {
+      const status = err.response?.status
+      if (status === 401) {
+        setApiError('Invalid email or password.')
+      } else if (status === 422) {
+        const e = err.response.data?.errors ?? {}
+        setErrors({ email: e.email?.[0] ?? '', password: e.password?.[0] ?? '' })
+      } else {
+        setApiError('Something went wrong. Please try again.')
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <div style={{ background: 'linear-gradient(135deg, #064e3b 0%, #065f46 40%, #d1fae5 100%)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-
-      {/* ── Main Content ── */}
       <div className="d-flex flex-grow-1 align-items-center justify-content-center p-3">
         <div
           className="d-flex overflow-hidden"
           style={{ width: '100%', maxWidth: 900, borderRadius: 20, boxShadow: '0 24px 80px rgba(0,0,0,.5)', background: '#fff' }}
         >
 
-          {/* ── LEFT: Image ── */}
+          {/* LEFT */}
           <div
             className="d-none d-lg-flex flex-column justify-content-end p-4"
             style={{
@@ -49,10 +66,7 @@ export default function LogIn() {
               background: `url(https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=700&fit=crop) center/cover`,
             }}
           >
-            {/* Dark overlay */}
             <div style={{ position:'absolute', inset:0, background:'linear-gradient(to top, rgba(0,0,0,.7) 0%, rgba(0,0,0,.1) 60%)' }} />
-
-            {/* Text */}
             <div style={{ position:'relative', zIndex:2, color:'#fff' }}>
               <h2 className="fw-bold mb-2" style={{ fontSize:'1.8rem' }}>CleanCity</h2>
               <p style={{ fontSize:'.85rem', opacity:.85, lineHeight:1.6, maxWidth:280 }}>
@@ -61,15 +75,25 @@ export default function LogIn() {
             </div>
           </div>
 
-          {/* ── RIGHT: Form ── */}
+          {/* RIGHT */}
           <div className="d-flex flex-column justify-content-center p-5 flex-grow-1">
-
             <h3 className="fw-bold mb-1" style={{ fontSize:'1.6rem', color:'#0f172a' }}>Welcome Back</h3>
             <p className="text-secondary mb-4" style={{ fontSize:'.85rem' }}>
               Sign in to your account to continue your civic contribution.
             </p>
 
-            <form onSubmit={handleSubmit}>
+            {/* API Error */}
+            {apiError && (
+              <div className="alert alert-danger d-flex align-items-center gap-2 py-2 mb-3" style={{ fontSize:'.85rem' }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                  <path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/>
+                </svg>
+                {apiError}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} noValidate>
 
               {/* Email */}
               <div className="mb-3">
@@ -82,11 +106,12 @@ export default function LogIn() {
                   </span>
                   <input
                     type="email"
-                    className={`form-control bg-light border-start-0 ${errors.email?'is-invalid':''}`}
+                    className={`form-control bg-light border-start-0 ${errors.email ? 'is-invalid' : ''}`}
                     placeholder="name@example.com"
                     style={{ fontSize:'.87rem' }}
                     value={form.email}
                     onChange={e => set('email', e.target.value)}
+                    disabled={loading}
                   />
                   {errors.email && <div className="invalid-feedback">{errors.email}</div>}
                 </div>
@@ -108,11 +133,12 @@ export default function LogIn() {
                   </span>
                   <input
                     type={showPass ? 'text' : 'password'}
-                    className={`form-control bg-light border-start-0 border-end-0 ${errors.password?'is-invalid':''}`}
+                    className={`form-control bg-light border-start-0 border-end-0 ${errors.password ? 'is-invalid' : ''}`}
                     placeholder="••••••••"
                     style={{ fontSize:'.87rem' }}
                     value={form.password}
                     onChange={e => set('password', e.target.value)}
+                    disabled={loading}
                   />
                   <span className="input-group-text bg-light" style={{ cursor:'pointer' }} onClick={() => setShowPass(!showPass)}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="#94a3b8" viewBox="0 0 16 16">
@@ -135,6 +161,7 @@ export default function LogIn() {
                   style={{ width:16, height:16, cursor:'pointer' }}
                   checked={form.remember}
                   onChange={e => setForm(f => ({ ...f, remember: e.target.checked }))}
+                  disabled={loading}
                 />
                 <label htmlFor="remember" className="text-secondary" style={{ fontSize:'.85rem', cursor:'pointer' }}>Remember Me</label>
               </div>
@@ -142,14 +169,24 @@ export default function LogIn() {
               {/* Submit */}
               <button
                 type="submit"
+                disabled={loading}
                 className="btn w-100 fw-bold py-2 mb-4 d-flex align-items-center justify-content-center gap-2"
-                style={{ background:'#15803d', color:'#fff', fontSize:'.95rem', borderRadius:10, border:'none' }}
+                style={{ background:'#15803d', color:'#fff', fontSize:'.95rem', borderRadius:10, border:'none', opacity: loading ? .75 : 1 }}
               >
-                Sign In
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                  <path fillRule="evenodd" d="M10 3.5a.5.5 0 0 0-.5-.5h-8a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 1 1 0v2A1.5 1.5 0 0 1 9.5 14h-8A1.5 1.5 0 0 1 0 12.5v-9A1.5 1.5 0 0 1 1.5 2h8A1.5 1.5 0 0 1 11 3.5v2a.5.5 0 0 1-1 0v-2z"/>
-                  <path fillRule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/>
-                </svg>
+                {loading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                      <path fillRule="evenodd" d="M10 3.5a.5.5 0 0 0-.5-.5h-8a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 1 1 0v2A1.5 1.5 0 0 1 9.5 14h-8A1.5 1.5 0 0 1 0 12.5v-9A1.5 1.5 0 0 1 1.5 2h8A1.5 1.5 0 0 1 11 3.5v2a.5.5 0 0 1-1 0v-2z"/>
+                      <path fillRule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/>
+                    </svg>
+                  </>
+                )}
               </button>
 
             </form>
@@ -161,7 +198,7 @@ export default function LogIn() {
               <hr className="flex-grow-1 m-0" />
             </div>
 
-            {/* Social Buttons */}
+            {/* Social */}
             <div className="d-flex gap-3 mb-4">
               <button className="btn btn-outline-secondary flex-grow-1 d-flex align-items-center justify-content-center gap-2" style={{ fontSize:'.85rem', borderRadius:8 }}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 48 48">
@@ -180,7 +217,6 @@ export default function LogIn() {
               </button>
             </div>
 
-            {/* Register link */}
             <div className="text-center" style={{ fontSize:'.85rem', color:'#64748b' }}>
               Need an account?{' '}
               <Link to="/register" className="fw-bold text-decoration-none" style={{ color:'#15803d' }}>Register</Link>
@@ -189,7 +225,6 @@ export default function LogIn() {
           </div>
         </div>
       </div>
-
     </div>
   )
 }

@@ -74,11 +74,11 @@ export default function UserReportDetails() {
         }
       } catch (err) {
         if (err.response?.status === 404) {
-          setError('البلاغ غير موجود')
+          setError('Report not found')
         } else if (err.response?.status === 403) {
-          setError('غير مصرح لك بعرض هذا البلاغ')
+          setError('You are not authorized to view this report')
         } else {
-          setError(err.response?.data?.message || 'فشل في تحميل تفاصيل البلاغ')
+          setError(err.response?.data?.message || 'Failed to load report details')
         }
       } finally {
         setLoading(false)
@@ -98,7 +98,7 @@ export default function UserReportDetails() {
       setUpvoted(!upvoted)
       setUpvotes(u => upvoted ? u - 1 : u + 1)
     } catch (err) {
-      alert(err.response?.data?.message || 'فشل في التصويت')
+      alert(err.response?.data?.message || 'Failed to upvote')
     } finally {
       setSubmitting(false)
     }
@@ -107,15 +107,15 @@ export default function UserReportDetails() {
   // ── Handle Rating ──
   const handleSubmitRating = async () => {
     if (rating === 0) {
-      alert('الرجاء اختيار تقييم')
+      alert('Please select a rating')
       return
     }
     try {
       setRatingSubmit(true)
-    await reportsService.rate(id, { rating, comment: feedback })
-      alert('تم إرسال التقييم بنجاح')
+      await reportsService.rate(id, { rating, comment: feedback })
+      alert('Rating submitted successfully')
     } catch (err) {
-      alert(err.response?.data?.message || 'فشل في إرسال التقييم')
+      alert(err.response?.data?.message || 'Failed to submit rating')
     } finally {
       setRatingSubmit(false)
     }
@@ -135,11 +135,11 @@ export default function UserReportDetails() {
 
   const getStatusLabel = (status) => {
     const labels = {
-      pending:     'معلق',
-      assigned:    'تم التعيين',
-      in_progress: 'قيد التنفيذ',
-      resolved:    'تم الحل',
-      rejected:    'مرفوض'
+      pending:     'Pending',
+      assigned:    'Assigned',
+      in_progress: 'In Progress',
+      resolved:    'Resolved',
+      rejected:    'Rejected'
     }
     return labels[status] || status
   }
@@ -156,10 +156,10 @@ export default function UserReportDetails() {
 
   const getSeverityLabel = (severity) => {
     const labels = {
-      low:      'منخفض',
-      medium:   'متوسط',
-      high:     'عالي',
-      critical: 'حرج'
+      low:      'Low',
+      medium:   'Medium',
+      high:     'High',
+      critical: 'Critical'
     }
     return labels[severity] || severity
   }
@@ -176,8 +176,8 @@ export default function UserReportDetails() {
       const active = report.status === step
       return {
         label: getStatusLabel(step),
-        date: histItem ? new Date(histItem.created_at).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) 
-             : step === 'resolved' && !done ? 'متوقع قريباً' 
+        date: histItem ? new Date(histItem.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) 
+             : step === 'resolved' && !done ? 'Expected soon' 
              : '',
         done,
         active
@@ -189,7 +189,7 @@ export default function UserReportDetails() {
     if (!report?.images) return []
     return report.images
       .filter(img => img.type === (photoTab === 'Before' ? 'before' : 'after'))
-      .map(img => img.image_path)
+      .map(img => `http://127.0.0.1:8000/storage/${img.image_path}`)
   }
 
   const photos = getPhotos()
@@ -199,7 +199,7 @@ export default function UserReportDetails() {
     <div style={{ background: '#f8f9fa', minHeight: '100vh' }} className="d-flex align-items-center justify-content-center">
       <div className="text-center">
         <div className="spinner-border text-success mb-3" role="status" />
-        <p className="text-secondary">جاري التحميل...</p>
+        <p className="text-secondary">Loading...</p>
       </div>
     </div>
   )
@@ -210,7 +210,7 @@ export default function UserReportDetails() {
         <i className="bi bi-exclamation-circle text-danger" style={{ fontSize: '3rem' }} />
         <h4 className="mt-3 text-danger">{error}</h4>
         <button className="btn btn-success mt-3" onClick={() => navigate('/user/my-reports')}>
-          العودة لبلاغاتي
+          Back to My Reports
         </button>
       </div>
     </div>
@@ -225,10 +225,10 @@ export default function UserReportDetails() {
         {/* Breadcrumb */}
         <div className="d-flex align-items-center gap-2 mb-4" style={{ fontSize: '.85rem' }}>
           <button className="btn btn-link p-0 text-secondary text-decoration-none" onClick={() => navigate('/user/my-reports')}>
-            بلاغاتي
+            My Reports
           </button>
           <span className="text-secondary">›</span>
-          <span style={{ color: '#0f172a' }}>بلاغ #{id || report.id}</span>
+          <span style={{ color: '#0f172a' }}>Report #{id || report.id}</span>
         </div>
 
         {/* ── Status Timeline ── */}
@@ -278,7 +278,7 @@ export default function UserReportDetails() {
                     style={{ background: getSeverityColor(report.severity) + '20', color: getSeverityColor(report.severity), fontSize: '.68rem' }}
                   >{getSeverityLabel(report.severity).toUpperCase()}</span>
                   <div className="text-end">
-                    <div className="text-secondary" style={{ fontSize: '.72rem' }}>رمز التتبع</div>
+                    <div className="text-secondary" style={{ fontSize: '.72rem' }}>Tracking Code</div>
                     <div className="fw-bold" style={{ fontSize: '.85rem', color: '#16a34a', fontFamily: 'monospace' }}>{report.tracking_token}</div>
                   </div>
                 </div>
@@ -290,10 +290,10 @@ export default function UserReportDetails() {
 
                 <div className="row g-3">
                   {[
-                    { icon: 'bi-grid',        label: 'التصنيف',       value: report.category?.name || report.category },
-                    { icon: 'bi-geo-alt',      label: 'المدينة',       value: report.city?.name || report.city },
-                    { icon: 'bi-calendar3',    label: 'تاريخ البلاغ',  value: new Date(report.created_at).toLocaleDateString('ar-EG') },
-                    { icon: 'bi-people',       label: 'العنوان',       value: report.address || 'غير محدد' },
+                    { icon: 'bi-grid',        label: 'Category',      value: report.category?.name || report.category },
+                    { icon: 'bi-geo-alt',      label: 'City',          value: report.city?.name || report.city },
+                    { icon: 'bi-calendar3',    label: 'Report Date',   value: new Date(report.created_at).toLocaleDateString('en-US') },
+                    { icon: 'bi-people',       label: 'Address',       value: report.address || 'Not specified' },
                   ].map((f, i) => (
                     <div key={i} className="col-6">
                       <div className="text-secondary mb-1" style={{ fontSize: '.72rem', fontWeight: 600 }}>{f.label}</div>
@@ -310,7 +310,7 @@ export default function UserReportDetails() {
                     <hr className="my-3" />
                     <div className="d-flex align-items-center gap-2">
                       <i className="bi bi-building text-success" />
-                      <span className="fw-semibold" style={{ fontSize: '.85rem' }}>الشركة المسندة:</span>
+                      <span className="fw-semibold" style={{ fontSize: '.85rem' }}>Assigned Company:</span>
                       <span style={{ fontSize: '.85rem', color: '#334155' }}>{report.assigned_company.name}</span>
                     </div>
                   </>
@@ -321,7 +321,7 @@ export default function UserReportDetails() {
                     <hr className="my-3" />
                     <div className="alert alert-danger" style={{ fontSize: '.82rem' }}>
                       <i className="bi bi-exclamation-triangle me-2" />
-                      <strong>سبب الرفض:</strong> {report.rejection_reason}
+                      <strong>Rejection Reason:</strong> {report.rejection_reason}
                     </div>
                   </>
                 )}
@@ -342,10 +342,10 @@ export default function UserReportDetails() {
                   disabled={submitting}
                 >
                   <i className="bi bi-hand-thumbs-up-fill" />
-                  {submitting ? 'جاري التحميل...' : `upvote (${upvotes})`}
+                  {submitting ? 'Loading...' : `Upvote (${upvotes})`}
                 </button>
                 <button className="btn btn-link text-decoration-none fw-semibold" style={{ color: '#16a34a', fontSize: '.85rem' }}>
-                  ادعم هذا البلاغ
+                  Support this report
                 </button>
               </div>
             </div>
@@ -358,11 +358,11 @@ export default function UserReportDetails() {
               <div className="card-body p-4">
                 <div className="d-flex align-items-center gap-2 mb-2">
                   <i className="bi bi-lock-fill text-secondary" style={{ fontSize: '.9rem' }} />
-                  <span className="fw-bold" style={{ fontSize: '.95rem' }}>تقييم الحل</span>
+                  <span className="fw-bold" style={{ fontSize: '.95rem' }}>Rate the Resolution</span>
                 </div>
                 {!isResolved && (
                   <p className="text-secondary mb-3" style={{ fontSize: '.82rem' }}>
-                    هذا القسم سيتفتح عندما يتم حل البلاغ.
+                    This section will unlock once the report is resolved.
                   </p>
                 )}
 
@@ -383,7 +383,7 @@ export default function UserReportDetails() {
                 <textarea
                   className="form-control"
                   rows={3}
-                  placeholder="شاركنا رأيك..."
+                  placeholder="Share your feedback..."
                   style={{ fontSize: '.85rem', resize: 'none', background: '#f8fafc', border: '1px solid #e2e8f0' }}
                   disabled={!isResolved}
                   value={feedback}
@@ -398,7 +398,7 @@ export default function UserReportDetails() {
                       onClick={handleSubmitRating}
                       disabled={ratingSubmit}
                     >
-                      {ratingSubmit ? 'جاري الإرسال...' : 'إرسال التقييم'}
+                      {ratingSubmit ? 'Submitting...' : 'Submit Rating'}
                     </button>
                   </div>
                 )}
@@ -426,7 +426,7 @@ export default function UserReportDetails() {
                         background: 'none', fontSize: '.88rem',
                       }}
                       onClick={() => setPhotoTab(tab)}
-                    >{tab === 'Before' ? 'قبل' : 'بعد'}</button>
+                    >{tab === 'Before' ? 'Before' : 'After'}</button>
                   ))}
                 </div>
 
@@ -434,7 +434,7 @@ export default function UserReportDetails() {
                   {photos.length === 0 ? (
                     <div className="text-center py-4 text-secondary" style={{ fontSize: '.85rem' }}>
                       <i className="bi bi-image" style={{ fontSize: '2rem', opacity: .3 }} />
-                      <div className="mt-2">لا توجد صور {photoTab === 'Before' ? 'قبل' : 'بعد'} حتى الآن</div>
+                      <div className="mt-2">No {photoTab === 'Before' ? 'before' : 'after'} photos yet</div>
                     </div>
                   ) : (
                     <>
@@ -473,7 +473,7 @@ export default function UserReportDetails() {
                 <div className="d-flex align-items-center justify-content-between mb-2">
                   <div className="d-flex align-items-center gap-1">
                     <i className="bi bi-geo-alt-fill text-success" />
-                    <span className="fw-semibold" style={{ fontSize: '.88rem' }}>{report.address || report.city?.name || 'الموقع'}</span>
+                    <span className="fw-semibold" style={{ fontSize: '.88rem' }}>{report.address || report.city?.name || 'Location'}</span>
                   </div>
                   <a 
                     href={`https://www.google.com/maps?q=${report.latitude},${report.longitude}`}
@@ -482,7 +482,7 @@ export default function UserReportDetails() {
                     className="btn btn-link p-0 text-decoration-none fw-semibold"
                     style={{ color: '#16a34a', fontSize: '.8rem' }}
                   >
-                    فتح الخريطة
+                    Open Map
                   </a>
                 </div>
                 <ReportMap lat={report.latitude || 30.0626} lng={report.longitude || 31.2197} />
